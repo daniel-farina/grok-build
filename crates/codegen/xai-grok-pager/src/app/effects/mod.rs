@@ -2861,6 +2861,48 @@ pub(crate) fn execute(
                     }
                 });
         }
+        Effect::StartRemoteControl {
+            agent_id,
+            session_label,
+            already_running_card,
+        } => {
+            tasks.spawn(async move {
+                if let Some(message) = already_running_card {
+                    return TaskResult::RemoteControlReady {
+                        agent_id,
+                        message,
+                        started: None,
+                    };
+                }
+                match crate::remote::start_remote(None, session_label).await {
+                    crate::remote::RemoteStartResult::Started {
+                        message,
+                        handle,
+                        prompt_rx,
+                    } => TaskResult::RemoteControlReady {
+                        agent_id,
+                        message: message.clone(),
+                        started: Some(crate::remote::RemoteControlState {
+                            handle,
+                            connection_card: message,
+                            prompt_rx,
+                            last_transcript_len: 0,
+                            suppress_next_user_publish: false,
+                        }),
+                    },
+                    crate::remote::RemoteStartResult::AlreadyRunning { message } => {
+                        TaskResult::RemoteControlReady {
+                            agent_id,
+                            message,
+                            started: None,
+                        }
+                    }
+                    crate::remote::RemoteStartResult::Failed { message } => {
+                        TaskResult::RemoteControlFailed { agent_id, message }
+                    }
+                }
+            });
+        }
         Effect::FetchSessionAgentName { agent_id, session_id } => {
             let tx = acp_tx.clone();
             tasks

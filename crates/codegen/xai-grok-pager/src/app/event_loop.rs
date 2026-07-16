@@ -1495,6 +1495,37 @@ pub(crate) async fn run(
             &mut draw_scheduled_at,
         );
 
+        // Dual-input remote control: steer prompts from the Tailscale web UI
+        // enter the same session queue as local TUI prompts.
+        {
+            let mut remote_prompts = Vec::new();
+            if let Some(remote) = app.remote_control.as_mut() {
+                while let Ok(p) = remote.prompt_rx.try_recv() {
+                    remote_prompts.push(p.text);
+                }
+            }
+            for text in remote_prompts {
+                // Surface origin in the local TUI so the session is aware.
+                if let ActiveView::Agent(id) = app.active_view
+                    && let Some(agent) = app.agents.get_mut(&id)
+                {
+                    agent.scrollback.push_block(
+                        crate::scrollback::block::RenderBlock::system(
+                            "← remote (Tailscale)".to_string(),
+                        ),
+                    );
+                }
+                // HTTP handler already published this user line — don't double-post.
+                if let Some(remote) = app.remote_control.as_mut() {
+                    remote.suppress_next_user_publish = true;
+                }
+                let effs = dispatch::dispatch(Action::SendPrompt(text), &mut app);
+                if process_effects(effs, &mut tasks, &mut app, &progress_tx) {
+                    return Ok(make_run_result(&app));
+                }
+            }
+        }
+
         // Lazy voice pipeline: only after `/voice` or Ctrl+Space while gates
         // allow. Consume the queued cold-start, carrying its hold-ownership and
         // bound target forward into the live recording it spawns.
@@ -1736,6 +1767,8 @@ pub(crate) async fn run(
                 }
 
                 if state_changed {
+                    // Fan session transcript out to Tailscale remote clients.
+                    sync_remote_transcript(&mut app);
                     schedule_tick(&mut animation_tick_at, &app, tick_interval);
                     resize_debounce_at = None;
                     // Cap paint rate so terminal input isn't starved during
@@ -2551,6 +2584,42 @@ fn sync_appearance_watcher(watcher: &mut Option<SystemAppearanceWatcher>) {
     let should_auto = theme_cache::is_auto_mode();
     if should_auto != watcher.is_some() {
         *watcher = SystemAppearanceWatcher::start_if_auto(should_auto);
+    }
+}
+
+/// Push new assistant text to Tailscale remote clients (streaming stream).
+///
+/// User messages from the local TUI are published at send time; remote-origin
+/// user messages are published by the HTTP handler. This only fans out
+/// assistant content so dual surfaces stay in sync without double-posting
+/// user lines.
+fn sync_remote_transcript(app: &mut AppView) {
+    let Some(remote) = app.remote_control.as_mut() else {
+        return;
+    };
+    let ActiveView::Agent(id) = app.active_view else {
+        return;
+    };
+    let Some(agent) = app.agents.get(&id) else {
+        return;
+    };
+    let mut assistant = String::new();
+    for i in 0..agent.scrollback.len() {
+        if let Some(entry) = agent.scrollback.get(i)
+            && let crate::scrollback::block::RenderBlock::AgentMessage(msg) = &entry.block
+        {
+            assistant.push_str(&msg.text());
+        }
+    }
+    if assistant.len() <= remote.last_transcript_len {
+        return;
+    }
+    let delta = assistant[remote.last_transcript_len..].to_string();
+    remote.last_transcript_len = assistant.len();
+    if !delta.is_empty() {
+        // Kind `assistant_delta` so remote UIs can coalesce stream chunks
+        // into a single bubble (same as `assistant` on the client).
+        remote.handle.publish("assistant_delta", &delta, "local");
     }
 }
 

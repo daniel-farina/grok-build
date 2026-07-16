@@ -338,6 +338,18 @@ pub(super) fn dispatch_send_prompt_inner(
     let mut tip_send_now_after_queue = false;
     let voice_stt_language_from_app = app.voice_config.language.clone();
     let login_method_id_from_app = app.login_method_id.as_ref().map(|id| id.0.to_string());
+    // Clone before the agent borrow so local user text can fan out to Tailscale
+    // remote clients (dual-input stream).
+    let mut skip_remote_user_publish = false;
+    let remote_handle = if let Some(remote) = app.remote_control.as_mut() {
+        if remote.suppress_next_user_publish {
+            remote.suppress_next_user_publish = false;
+            skip_remote_user_publish = true;
+        }
+        Some(remote.handle.clone())
+    } else {
+        None
+    };
     let Some(agent) = app.agents.get_mut(&id) else {
         return vec![];
     };
@@ -630,6 +642,14 @@ pub(super) fn dispatch_send_prompt_inner(
         // a short tip advertising send-now — plain Enter queues; Enter again on
         // the emptied composer sends the queued message now (cancel-and-send).
         let queued_while_running = agent.session.state.is_turn_running();
+
+        // Dual-input: mirror local user prompts to remote browsers.
+        if let Some(ref h) = remote_handle
+            && !skip_remote_user_publish
+            && !trimmed.is_empty()
+        {
+            h.publish("user", trimmed, "local");
+        }
 
         // Composer-recognized slash tokens at submit time: styles the
         // scrollback echo and rides the wire meta so replay restyles it.

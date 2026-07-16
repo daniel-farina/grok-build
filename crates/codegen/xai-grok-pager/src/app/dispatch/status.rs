@@ -15,6 +15,50 @@ use crate::scrollback::block::RenderBlock;
 /// restore the stashed prompt. Future incoming permissions will be
 /// auto-approved in `handle_permission_request`.
 ///
+/// Enable Tailscale remote control for the active session (`/remote`).
+///
+/// Produces [`Effect::StartRemoteControl`]. On success the connection card
+/// (URL + QR) is shown in scrollback and the session accepts dual input.
+pub(crate) fn dispatch_start_remote_control(app: &mut AppView) -> Vec<Effect> {
+    let ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    let Some(agent) = app.agents.get(&id) else {
+        return vec![];
+    };
+    if agent.session.session_id.is_none() {
+        return vec![];
+    }
+
+    if let Some(remote) = app.remote_control.as_ref() {
+        return vec![Effect::StartRemoteControl {
+            agent_id: id,
+            session_label: String::new(),
+            already_running_card: Some(remote.connection_card.clone()),
+        }];
+    }
+
+    let session_id_label = agent
+        .session
+        .session_id
+        .as_ref()
+        .map(|s| s.0.to_string())
+        .unwrap_or_else(|| "session".into());
+    // Prefer a short human title when available.
+    let label = agent
+        .display_name
+        .clone()
+        .or_else(|| agent.generated_session_title.clone())
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(session_id_label);
+
+    vec![Effect::StartRemoteControl {
+        agent_id: id,
+        session_label: label,
+        already_running_card: None,
+    }]
+}
+
 /// Share the current session via a public URL.
 ///
 /// Produces Effect::ShareSession which spawns an async ACP ext request.

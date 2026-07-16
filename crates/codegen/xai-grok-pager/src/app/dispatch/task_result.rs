@@ -679,6 +679,29 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             }
             vec![]
         }
+        TaskResult::RemoteControlReady {
+            agent_id,
+            message,
+            started,
+        } => {
+            if let Some(state) = started {
+                app.remote_control = Some(state);
+            }
+            if let Some(agent) = app.agents.get_mut(&agent_id) {
+                agent
+                    .scrollback
+                    .push_block(crate::scrollback::block::RenderBlock::system(message));
+            }
+            vec![]
+        }
+        TaskResult::RemoteControlFailed { agent_id, message } => {
+            if let Some(agent) = app.agents.get_mut(&agent_id) {
+                agent
+                    .scrollback
+                    .push_block(crate::scrollback::block::RenderBlock::system(message));
+            }
+            vec![]
+        }
         TaskResult::SessionAgentNameResolved {
             agent_id,
             agent_name,

@@ -640,6 +640,9 @@ pub struct AppView {
     /// `RemoteSettings.sharing_enabled`; defaults to `false` when remote
     /// settings are unavailable or the field is absent.
     pub sharing_enabled: bool,
+    /// Active Tailscale remote-control endpoint for dual local/remote input.
+    /// Set by `/remote`; cleared on process exit (server task cancels with handle).
+    pub remote_control: Option<crate::remote::RemoteControlState>,
     /// Whether the plugin marketplace CTA is enabled. Env `GROK_PLUGIN_CTA`
     /// overrides `RemoteSettings.plugin_cta` (remote settings); defaults to `false`.
     pub plugin_cta_enabled: bool,
@@ -1325,6 +1328,7 @@ impl AppView {
             screen_mode: ScreenMode::Inline,
             show_resolved_model: true,
             sharing_enabled: false,
+            remote_control: None,
             plugin_cta_enabled: false,
             usage_visible: true,
             tier_restricted_commands: Vec::new(),
@@ -5213,6 +5217,7 @@ pub(crate) mod tests {
             reconnect_pending: false,
             show_resolved_model: true,
             sharing_enabled: false,
+            remote_control: None,
             plugin_cta_enabled: false,
             usage_visible: true,
             tier_restricted_commands: Vec::new(),

@@ -94,6 +94,7 @@ use super::settings::ui::{
 };
 use super::status::{
     dispatch_copy_session_id, dispatch_open_gboom, dispatch_share_session,
+    dispatch_start_remote_control,
     dispatch_show_context_info, dispatch_show_privacy_info, dispatch_show_queue,
     dispatch_show_release_notes, dispatch_show_session_info, dispatch_show_tasks,
     dispatch_show_usage, set_coding_data_sharing,
@@ -874,6 +875,7 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
         }
         Action::CycleMode => dispatch_cycle_mode(app),
         Action::ShareSession => dispatch_share_session(app),
+        Action::StartRemoteControl => dispatch_start_remote_control(app),
         Action::ShowSessionInfo => dispatch_show_session_info(app),
         Action::ShowReleaseNotes { title, content } => {
             dispatch_show_release_notes(app, title, content)

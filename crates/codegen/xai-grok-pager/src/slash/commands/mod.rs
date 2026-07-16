@@ -47,6 +47,7 @@ pub mod queue;
 pub mod recap;
 pub mod release_notes;
 pub mod remember;
+pub mod remote;
 pub mod rename;
 pub mod resume;
 pub mod rewind;
@@ -103,6 +104,7 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(plugin::MarketplaceCommand),
         Arc::new(plugin::SkillsCommand),
         Arc::new(share::ShareCommand),
+        Arc::new(remote::RemoteCommand),
         Arc::new(session_info::SessionInfoCommand),
         Arc::new(rename::RenameCommand),
         Arc::new(dashboard::DashboardCommand),
@@ -625,6 +627,22 @@ mod tests {
         assert!(
             reg.get("recap").is_some(),
             "/recap should be registered in builtins"
+        );
+    }
+    #[test]
+    fn remote_registered_in_builtin_commands() {
+        let reg = CommandRegistry::new(builtin_commands());
+        assert!(
+            reg.get("remote").is_some(),
+            "/remote should be registered in builtins"
+        );
+        assert!(
+            reg.get("rc").is_some(),
+            "/rc should alias /remote"
+        );
+        assert_eq!(
+            reg.get("rc").unwrap().name(),
+            reg.get("remote").unwrap().name()
         );
     }
     #[test]

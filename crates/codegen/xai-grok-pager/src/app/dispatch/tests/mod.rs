@@ -231,6 +231,7 @@ fn test_app() -> AppView {
         reconnect_pending: false,
         show_resolved_model: true,
         sharing_enabled: false,
+        remote_control: None,
         plugin_cta_enabled: false,
         usage_visible: true,
         tier_restricted_commands: Vec::new(),

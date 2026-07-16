@@ -58,6 +58,31 @@ Show session details including model, turn count, and context usage.
 /session-info
 ```
 
+### `/remote`
+
+Enable **remote control** for the current session over [Tailscale](https://tailscale.com).
+
+```
+/remote
+```
+
+Aliases: `/rc`, `/remote-control`
+
+What it does:
+
+1. Checks that Tailscale is installed and connected (if not, prints install/start instructions).
+2. Starts a small web UI on this machine (reachable on your Tailscale IP).
+3. Prints a **URL** and **QR code**.
+
+On your phone (or another computer):
+
+- Install Tailscale and log into the **same Tailscale account** as this machine.
+- Open the URL (or scan the QR) in a browser.
+- Stream the session and type messages to **steer** the agent.
+
+Local TUI and remote browser share **one session** (dual input). Remote control stops when Grok exits. Run `/remote` again to re-show the connection card.
+
+> This is **not** cloud execution: tools and files stay on the host machine. Connectivity is your private Tailscale network plus a secret URL token.
 
 ### `/fork`
 

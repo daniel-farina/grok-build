@@ -619,6 +619,8 @@ pub enum Action {
     TaskComplete(TaskResult),
     /// Share the current session via URL.
     ShareSession,
+    /// Enable Tailscale remote control (URL + QR) for the active session.
+    StartRemoteControl,
     /// Show session info (ID, cwd, model, context usage) instantly.
     ShowSessionInfo,
     /// Show release notes in a modal.
@@ -1797,6 +1799,13 @@ pub enum Effect {
         agent_id: AgentId,
         session_id: acp::SessionId,
     },
+    /// Start Tailscale remote control for the active session.
+    StartRemoteControl {
+        agent_id: AgentId,
+        session_label: String,
+        /// When true, only re-show the existing connection card (no new server).
+        already_running_card: Option<String>,
+    },
     /// Fetch and display session info via x.ai/session/info.
     ShowSessionInfo {
         agent_id: AgentId,
@@ -2408,6 +2417,18 @@ pub enum TaskResult {
     ShareSessionFailed {
         agent_id: AgentId,
         error: String,
+    },
+    /// Tailscale remote control started (or re-shown).
+    RemoteControlReady {
+        agent_id: AgentId,
+        message: String,
+        /// `Some` when a new server was started; `None` when re-showing.
+        started: Option<crate::remote::RemoteControlState>,
+    },
+    /// Tailscale remote control failed (missing install, etc.).
+    RemoteControlFailed {
+        agent_id: AgentId,
+        message: String,
     },
     /// Session info fetched successfully.
     SessionInfoComplete {

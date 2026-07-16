@@ -16,6 +16,7 @@ commands, searches the web, and manages long-running tasks — interactively,
 headlessly for scripting/CI, or embedded in editors via the Agent Client
 Protocol (ACP).
 
+[Remote control (Tailscale)](#remote-control-via-tailscale) ·
 [Installing the released binary](#installing-the-released-binary) ·
 [Building from source](#building-from-source) ·
 [Documentation](#documentation) ·
@@ -32,6 +33,106 @@ This repository contains the Rust source for the `grok` CLI/TUI and its agent
 runtime. It is synced periodically from the SpaceXAI monorepo.
 
 </div>
+
+---
+
+## Remote control via Tailscale
+
+Drive a live Grok session from your phone or another computer on your private
+[Tailscale](https://tailscale.com) network. Execution stays on the host machine
+(files, tools, MCP); the phone is a stream-and-steer web UI.
+
+### What you need
+
+| Where | Requirement |
+|-------|-------------|
+| **Host** (runs Grok) | Tailscale installed, logged in, connected |
+| **Phone / other device** | Tailscale app, **same Tailscale account** as the host |
+| **Grok** | Built from this tree (or a build that includes `/remote`) |
+
+### 1. Install and start Tailscale
+
+**Host (macOS example):**
+
+```sh
+brew install --cask tailscale
+# Open the Tailscale app → Log in
+tailscale status    # should show Running and a 100.x IP
+# or: tailscale up
+```
+
+**Linux:**
+
+```sh
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+tailscale status
+```
+
+**Phone:** install Tailscale from the App Store / Play Store and log into the
+**same account** as the host.
+
+### 2. Build and run Grok from this repo
+
+Requirements: **Rust** (`rustup`, pinned by `rust-toolchain.toml`) and
+**protoc** (or [dotslash](https://dotslash-cli.com) so `bin/protoc` works).
+
+```sh
+git clone https://github.com/daniel-farina/grok-build.git
+cd grok-build
+
+# if protoc is missing:
+#   brew install protobuf          # macOS
+#   or: cargo install dotslash
+
+cargo run -p xai-grok-pager-bin
+# release binary:
+# cargo build -p xai-grok-pager-bin --release
+# ./target/release/xai-grok-pager
+```
+
+On first launch, authenticate in the browser as usual.
+
+### 3. Enable remote control
+
+In an **active session** (start chatting first):
+
+```text
+/remote
+```
+
+Aliases: `/rc`, `/remote-control`.
+
+Grok will:
+
+1. Check that Tailscale is installed and connected (if not, print install hints)
+2. Start a small web UI on this machine (default port `7788`)
+3. Print a **URL** and **QR code**
+
+Example URL shape:
+
+```text
+http://100.x.x.x:7788/s/<secret-token>/
+```
+
+### 4. Connect from your phone
+
+1. Confirm Tailscale is on and using the **same account** as the host  
+2. Open the printed URL (or scan the QR code) in a mobile browser  
+3. Stream the session and type messages to steer the agent  
+
+Local TUI and phone share **one session** (dual input). Desktop messages show
+as “You (desktop)” on the phone; phone messages appear in the TUI as
+`← remote (Tailscale)`.
+
+### Notes
+
+- **Not cloud execution** — tools and files stay on the host; the host process
+  must keep running.
+- **Security** — reachable on your tailnet; URL includes a secret path token.
+  Prefer keeping Tailscale ACLs tight.
+- Re-run `/remote` anytime to re-show the URL/QR. Remote stops when Grok exits.
+- More detail: [slash commands — `/remote`](crates/codegen/xai-grok-pager/docs/user-guide/04-slash-commands.md)
 
 ---
 
