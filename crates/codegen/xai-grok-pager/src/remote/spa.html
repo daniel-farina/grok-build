@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="theme-color" content="#0b0d10"/>
+<link rel="manifest" href="/manifest.webmanifest"/>
+<title>Grok Remote</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0a0c0f;
+  --panel: #12161e;
+  --composer: #0f131a;
+  --border: #243041;
+  --text: #eef2f7;
+  --muted: #8b95a8;
+  --accent: #5eead4;
+  --accent-text: #042f2e;
+  --user-bg: #1a2740;
+  --user-border: #2d4a73;
+  --assistant-bg: #141a24;
+  --system-bg: #1a1628;
+  --system-text: #c4b5fd;
+  --tool-bg: #152018;
+  --tool-border: #2a4a38;
+  --perm-bg: #2a1f10;
+  --perm-border: #6b4a1a;
+  --danger: #f87171;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --drawer-w: min(88vw, 320px);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; height: 100dvh;
+  background: var(--bg); color: var(--text);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+}
+#app { display: flex; flex-direction: column; height: 100%; max-width: 720px; margin: 0 auto; padding-top: var(--safe-t); }
+header {
+  flex-shrink: 0; display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  background: rgba(18,22,30,.94); backdrop-filter: blur(12px);
+}
+#menuBtn, #moreBtn {
+  border: 0; background: transparent; color: var(--text);
+  min-width: 44px; min-height: 44px; font-size: 20px; cursor: pointer; border-radius: 10px;
+}
+#menuBtn:active, #moreBtn:active { background: var(--border); }
+header .titles { flex: 1; min-width: 0; }
+header h1 { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header .sub { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+#liveDot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+#liveDot.on { background: var(--accent); box-shadow: 0 0 0 3px rgba(94,234,212,.15); }
+#scrim {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 40;
+}
+#scrim.open { display: block; }
+#drawer {
+  position: fixed; top: 0; left: 0; bottom: 0; width: var(--drawer-w); z-index: 50;
+  background: var(--panel); border-right: 1px solid var(--border);
+  transform: translateX(-105%); transition: transform .2s ease;
+  display: flex; flex-direction: column; padding-top: var(--safe-t);
+}
+#drawer.open { transform: translateX(0); }
+#drawer .dh { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+#drawer .dh h2 { margin: 0; font-size: 15px; }
+#drawer .dh p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+#sessionList { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.sess {
+  display: block; width: 100%; text-align: left; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); border-radius: 12px; padding: 12px 14px; cursor: pointer;
+}
+.sess.active { border-color: var(--accent); background: #0f1c1a; }
+.sess .name { font-weight: 600; font-size: 14px; }
+.sess .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.sess .badge { display: inline-block; font-size: 10px; color: var(--accent); margin-left: 6px; }
+#log {
+  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 12px; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain;
+}
+.msg {
+  max-width: 92%; padding: 11px 14px; border-radius: 16px; border: 1px solid var(--border);
+  background: var(--assistant-bg); word-break: break-word;
+}
+.msg .meta { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+.msg .body { white-space: pre-wrap; font-size: 15px; line-height: 1.5; }
+.msg.assistant { align-self: flex-start; border-bottom-left-radius: 6px; }
+.msg.assistant .meta { color: var(--accent); }
+.msg.assistant.streaming .meta::after {
+  content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px;
+  border-radius: 50%; background: var(--accent); vertical-align: middle;
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:.35} 50%{opacity:1} }
+.msg.user { align-self: flex-end; background: var(--user-bg); border-color: var(--user-border); border-bottom-right-radius: 6px; }
+.msg.user .meta { color: #93c5fd; }
+.msg.system { align-self: center; max-width: 100%; background: var(--system-bg); border-color: #3b3358; border-radius: 12px; padding: 8px 12px; }
+.msg.system .meta { display: none; }
+.msg.system .body { color: var(--system-text); font-size: 13px; text-align: center; }
+.msg.tool { align-self: stretch; max-width: 100%; background: var(--tool-bg); border-color: var(--tool-border); border-radius: 12px; }
+.msg.tool .meta { color: #6ee7b7; }
+.msg.permission {
+  align-self: stretch; max-width: 100%; background: var(--perm-bg); border-color: var(--perm-border);
+  border-radius: 14px;
+}
+.msg.permission .meta { color: #fbbf24; }
+.msg.permission .opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.msg.permission button {
+  border: 0; border-radius: 10px; min-height: 40px; padding: 0 14px;
+  background: var(--accent); color: var(--accent-text); font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.msg.permission button.secondary { background: #334155; color: var(--text); }
+.msg.permission button.danger { background: #7f1d1d; color: #fecaca; }
+.empty {
+  margin: auto; text-align: center; color: var(--muted); padding: 24px; font-size: 14px;
+}
+.composer {
+  flex-shrink: 0; border-top: 1px solid var(--border); background: var(--composer);
+  padding: 10px 12px calc(10px + var(--safe-b));
+}
+#status { font-size: 11px; color: var(--muted); margin: 0 2px 8px; min-height: 14px; }
+#status.ok { color: var(--accent); }
+#status.err { color: var(--danger); }
+form { display: flex; gap: 10px; align-items: flex-end; }
+textarea {
+  flex: 1; resize: none; min-height: 48px; max-height: 140px; border-radius: 14px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  padding: 12px 14px; font: inherit; font-size: 16px; line-height: 1.4; outline: none;
+}
+textarea:focus { border-color: #3d5a80; }
+#send {
+  flex-shrink: 0; border: 0; border-radius: 14px; min-width: 72px; min-height: 48px;
+  padding: 0 18px; background: var(--accent); color: var(--accent-text);
+  font-weight: 700; font-size: 15px; cursor: pointer;
+}
+#send:disabled { opacity: .45; }
+#sheet {
+  display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  background: var(--panel); border-top: 1px solid var(--border);
+  border-radius: 16px 16px 0 0; padding: 12px 12px calc(12px + var(--safe-b));
+}
+#sheet.open { display: block; }
+#sheet button {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  color: var(--text); padding: 14px 12px; font-size: 15px; border-radius: 10px; cursor: pointer;
+}
+#sheet button:active { background: var(--border); }
+#sheet button.danger { color: var(--danger); }
+#sheet .cancel { color: var(--muted); margin-top: 4px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <button type="button" id="menuBtn" aria-label="Sessions">☰</button>
+    <span id="liveDot"></span>
+    <div class="titles">
+      <h1 id="title">Grok Remote</h1>
+      <p class="sub" id="subtitle">Select a session</p>
+    </div>
+    <button type="button" id="moreBtn" aria-label="More">⋯</button>
+  </header>
+  <div id="log"><div class="empty" id="emptyHint">Open the menu to pick a remote session, or run <code>/remote</code> in Grok.</div></div>
+  <div class="composer">
+    <div id="status">Connecting…</div>
+    <form id="f">
+      <textarea id="t" rows="1" placeholder="Message Grok…" enterkeyhint="send" disabled></textarea>
+      <button type="submit" id="send" disabled>Send</button>
+    </form>
+  </div>
+</div>
+<div id="scrim"></div>
+<aside id="drawer">
+  <div class="dh">
+    <h2>Sessions</h2>
+    <p id="hubMeta">Loading…</p>
+  </div>
+  <div id="sessionList"></div>
+</aside>
+<div id="sheet">
+  <button type="button" id="actReload">Reload history</button>
+  <button type="button" id="actCopy">Copy session URL</button>
+  <button type="button" id="actDisconnect" class="danger">Disconnect this session</button>
+  <button type="button" id="actCloseSheet" class="cancel">Cancel</button>
+</div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const log = $('log');
+  const emptyHint = $('emptyHint');
+  const statusEl = $('status');
+  const liveDot = $('liveDot');
+  const titleEl = $('title');
+  const subtitleEl = $('subtitle');
+  const ta = $('t');
+  const sendBtn = $('send');
+  const form = $('f');
+  const drawer = $('drawer');
+  const scrim = $('scrim');
+  const sessionList = $('sessionList');
+  const hubMeta = $('hubMeta');
+  const sheet = $('sheet');
+
+  let sessions = [];
+  let currentToken = null;
+  let es = null;
+  let seen = new Set();
+  let openAssistant = null;
+  let streamIdleTimer = null;
+  let pollTimer = null;
+
+  function pathToken() {
+    const m = location.pathname.match(/^\/s\/([^/]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = cls || '';
+    liveDot.classList.toggle('on', cls === 'ok');
+  }
+
+  function openDrawer(open) {
+    drawer.classList.toggle('open', open);
+    scrim.classList.toggle('open', open);
+  }
+  function openSheet(open) {
+    sheet.classList.toggle('open', open);
+    if (open) scrim.classList.add('open');
+    else if (!drawer.classList.contains('open')) scrim.classList.remove('open');
+  }
+
+  function kindOf(ev) {
+    const k = (ev.kind || 'system').toLowerCase();
+    if (k === 'assistant' || k === 'assistant_delta') return 'assistant';
+    if (k === 'user') return 'user';
+    if (k === 'tool' || k === 'tool_call') return 'tool';
+    if (k === 'permission') return 'permission';
+    return 'system';
+  }
+  function labelFor(kind, origin) {
+    if (kind === 'assistant') return 'Grok';
+    if (kind === 'user') return origin === 'local' ? 'You (desktop)' : 'You';
+    if (kind === 'tool') return 'Tool';
+    if (kind === 'permission') return 'Permission needed';
+    return 'System';
+  }
+  function nearBottom() {
+    return log.scrollHeight - log.scrollTop - log.clientHeight < 100;
+  }
+  function scrollIfNeeded(force) {
+    if (force || nearBottom()) log.scrollTop = log.scrollHeight;
+  }
+  function closeAssistantStream() {
+    if (openAssistant) {
+      openAssistant.el.classList.remove('streaming');
+      openAssistant = null;
+    }
+    if (streamIdleTimer) {
+      clearTimeout(streamIdleTimer);
+      streamIdleTimer = null;
+    }
+  }
+  function markStreaming() {
+    if (!openAssistant) return;
+    openAssistant.el.classList.add('streaming');
+    if (streamIdleTimer) clearTimeout(streamIdleTimer);
+    streamIdleTimer = setTimeout(() => {
+      if (openAssistant) openAssistant.el.classList.remove('streaming');
+    }, 900);
+  }
+
+  function clearLog() {
+    log.innerHTML = '';
+    seen = new Set();
+    openAssistant = null;
+    emptyHint.style.display = 'none';
+  }
+
+  function addMsg(ev) {
+    if (ev.seq != null) {
+      if (seen.has(ev.seq)) return;
+      seen.add(ev.seq);
+    }
+    const kind = kindOf(ev);
+    const text = ev.text || '';
+    const stick = nearBottom();
+
+    if (kind === 'assistant' && openAssistant && ev.kind !== 'assistant') {
+      // assistant_delta appends
+      openAssistant.body.textContent += text;
+      markStreaming();
+      scrollIfNeeded(stick);
+      return;
+    }
+    if (kind === 'assistant' && openAssistant && (ev.kind === 'assistant_delta' || ev.origin === 'stream')) {
+      openAssistant.body.textContent += text;
+      markStreaming();
+      scrollIfNeeded(stick);
+      return;
+    }
+    if (kind === 'assistant' && openAssistant && ev.kind === 'assistant_delta') {
+      openAssistant.body.textContent += text;
+      markStreaming();
+      scrollIfNeeded(stick);
+      return;
+    }
+    // Coalesce consecutive assistant_delta / assistant while open
+    if (kind === 'assistant' && openAssistant) {
+      openAssistant.body.textContent += text;
+      markStreaming();
+      scrollIfNeeded(stick);
+      return;
+    }
+    if (kind !== 'assistant') closeAssistantStream();
+
+    const div = document.createElement('div');
+    div.className = 'msg ' + kind;
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = labelFor(kind, ev.origin);
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.textContent = text;
+    div.appendChild(meta);
+    div.appendChild(body);
+
+    if (kind === 'permission' && ev.payload && Array.isArray(ev.payload.options)) {
+      const opts = document.createElement('div');
+      opts.className = 'opts';
+      ev.payload.options.forEach((opt, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = opt.name || opt.option_id || ('Option ' + (i + 1));
+        const id = (opt.option_id || '').toLowerCase();
+        if (id.includes('reject') || id.includes('deny') || id.includes('cancel')) b.className = 'danger';
+        else if (i > 0) b.className = 'secondary';
+        b.onclick = () => respondPermission(opt.option_id);
+        opts.appendChild(b);
+      });
+      div.appendChild(opts);
+    }
+
+    log.appendChild(div);
+    if (kind === 'assistant') {
+      openAssistant = { el: div, body };
+      markStreaming();
+    }
+    scrollIfNeeded(true);
+  }
+
+  async function respondPermission(optionId) {
+    if (!currentToken || !optionId) return;
+    try {
+      const res = await fetch('/s/' + encodeURIComponent(currentToken) + '/api/permission', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ option_id: optionId }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setStatus('Permission sent', 'ok');
+    } catch (e) {
+      setStatus('Permission failed: ' + e, 'err');
+    }
+  }
+
+  function renderSessionList() {
+    sessionList.innerHTML = '';
+    if (!sessions.length) {
+      sessionList.innerHTML = '<p class="empty" style="padding:12px">No remote sessions. Run <code>/remote</code> in Grok.</p>';
+      return;
+    }
+    sessions.forEach((s) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sess' + (s.token === currentToken ? ' active' : '');
+      b.innerHTML = '<div class="name">' + escapeHtml(s.label || 'Session') +
+        (s.token === currentToken ? '<span class="badge">active</span>' : '') +
+        '</div><div class="meta">' + escapeHtml(s.session_id || '').slice(0, 12) + '…</div>';
+      b.onclick = () => {
+        selectSession(s.token, true);
+        openDrawer(false);
+      };
+      sessionList.appendChild(b);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  async function refreshSessions() {
+    try {
+      const res = await fetch('/api/sessions');
+      if (!res.ok) throw new Error('list failed');
+      sessions = await res.json();
+      hubMeta.textContent = sessions.length + ' active · same Tailscale account';
+      renderSessionList();
+      if (!currentToken && sessions.length === 1) {
+        selectSession(sessions[0].token, false);
+      } else if (currentToken && !sessions.find((s) => s.token === currentToken)) {
+        // current disconnected
+        currentToken = null;
+        closeEs();
+        ta.disabled = true;
+        sendBtn.disabled = true;
+        titleEl.textContent = 'Grok Remote';
+        subtitleEl.textContent = 'Session ended';
+        setStatus('Session disconnected', 'err');
+      } else if (currentToken) {
+        const cur = sessions.find((s) => s.token === currentToken);
+        if (cur) {
+          titleEl.textContent = cur.label || 'Session';
+          subtitleEl.textContent = 'Dual input · Tailscale';
+        }
+      }
+    } catch (e) {
+      hubMeta.textContent = 'Could not list sessions';
+      setStatus('Hub unreachable', 'err');
+    }
+  }
+
+  function closeEs() {
+    if (es) {
+      es.close();
+      es = null;
+    }
+  }
+
+  async function loadHistory(token) {
+    try {
+      const res = await fetch('/s/' + encodeURIComponent(token) + '/api/history');
+      if (!res.ok) return;
+      const events = await res.json();
+      clearLog();
+      if (!events.length) {
+        log.innerHTML = '<div class="empty">No history yet — send a message or wait for desktop activity.</div>';
+      } else {
+        events.forEach(addMsg);
+      }
+    } catch (_) {}
+  }
+
+  function selectSession(token, pushUrl) {
+    if (!token) return;
+    currentToken = token;
+    const cur = sessions.find((s) => s.token === token);
+    titleEl.textContent = (cur && cur.label) || 'Session';
+    subtitleEl.textContent = 'Dual input · Tailscale';
+    ta.disabled = false;
+    sendBtn.disabled = false;
+    renderSessionList();
+    if (pushUrl) {
+      history.replaceState(null, '', '/s/' + encodeURIComponent(token) + '/');
+    }
+    closeEs();
+    clearLog();
+    loadHistory(token).then(() => {
+      es = new EventSource('/s/' + encodeURIComponent(token) + '/api/events');
+      es.onopen = () => setStatus('Live · desktop + this phone', 'ok');
+      es.onerror = () => setStatus('Reconnecting…', 'err');
+      es.onmessage = (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          // Skip history seqs already shown
+          if (ev.seq != null && seen.has(ev.seq)) return;
+          // If first live events after history, remove empty hint
+          const empty = log.querySelector('.empty');
+          if (empty) empty.remove();
+          addMsg(ev);
+        } catch (_) {}
+      };
+    });
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = ta.value.trim();
+    if (!text || !currentToken) return;
+    sendBtn.disabled = true;
+    closeAssistantStream();
+    try {
+      const res = await fetch('/s/' + encodeURIComponent(currentToken) + '/api/message', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      ta.value = '';
+      autoGrow();
+    } catch (err) {
+      setStatus('Send failed: ' + err, 'err');
+    } finally {
+      sendBtn.disabled = false;
+      ta.focus();
+    }
+  });
+
+  function autoGrow() {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+  }
+  ta.addEventListener('input', autoGrow);
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  $('menuBtn').onclick = () => {
+    openSheet(false);
+    openDrawer(!drawer.classList.contains('open'));
+    refreshSessions();
+  };
+  scrim.onclick = () => {
+    openDrawer(false);
+    openSheet(false);
+  };
+  $('moreBtn').onclick = () => {
+    openDrawer(false);
+    openSheet(true);
+  };
+  $('actCloseSheet').onclick = () => openSheet(false);
+  $('actReload').onclick = async () => {
+    openSheet(false);
+    if (currentToken) {
+      await fetch('/s/' + encodeURIComponent(currentToken) + '/api/history/refresh', { method: 'POST' }).catch(() => {});
+      await loadHistory(currentToken);
+      setStatus('History reloaded', 'ok');
+    }
+  };
+  $('actCopy').onclick = async () => {
+    openSheet(false);
+    if (!currentToken) return;
+    const url = location.origin + '/s/' + encodeURIComponent(currentToken) + '/';
+    try {
+      await navigator.clipboard.writeText(url);
+      setStatus('URL copied', 'ok');
+    } catch (_) {
+      setStatus(url, 'ok');
+    }
+  };
+  $('actDisconnect').onclick = async () => {
+    openSheet(false);
+    if (!currentToken) return;
+    if (!confirm('Disconnect remote for this session?')) return;
+    try {
+      const res = await fetch('/s/' + encodeURIComponent(currentToken) + '/api/disconnect', { method: 'POST' });
+      if (!res.ok) throw new Error(await res.text());
+      setStatus('Disconnected', 'ok');
+      currentToken = null;
+      closeEs();
+      clearLog();
+      ta.disabled = true;
+      sendBtn.disabled = true;
+      titleEl.textContent = 'Grok Remote';
+      subtitleEl.textContent = 'Select a session';
+      history.replaceState(null, '', '/');
+      refreshSessions();
+    } catch (e) {
+      setStatus('Disconnect failed: ' + e, 'err');
+    }
+  };
+
+  // PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
+  const boot = pathToken();
+  refreshSessions().then(() => {
+    if (boot) selectSession(boot, false);
+  });
+  pollTimer = setInterval(refreshSessions, 4000);
+  setStatus('Ready', 'ok');
+})();
+</script>
+</body>
+</html>

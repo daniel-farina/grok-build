@@ -9,13 +9,17 @@ mod server;
 mod tailscale;
 
 pub use qr::render_qr_unicode;
-pub use server::{RemoteHubHandle, RemoteHubStart, RemotePrompt, SessionSlot, DEFAULT_PORT};
+pub use server::{
+    RemoteCommand, RemoteHubHandle, RemoteHubStart, RemotePrompt, SessionSlot, DEFAULT_PORT,
+};
 pub use tailscale::{TailscaleInfo, TailscaleStatus, probe as probe_tailscale};
 
+use server::RemoteEvent;
 use tailscale::probe;
 use tokio::sync::mpsc;
 
 use crate::app::agent::AgentId;
+use crate::scrollback::block::RenderBlock;
 
 /// Per-session remote bookkeeping (token, URL, stream progress).
 #[derive(Debug, Clone)]
@@ -25,7 +29,10 @@ pub struct SessionRemoteMeta {
     pub connection_card: String,
     pub agent_id: AgentId,
     pub last_transcript_len: usize,
+    pub last_tool_fingerprint: String,
     pub suppress_next_user_publish: bool,
+    /// Last permission fingerprint we published (avoid spam).
+    pub last_permission_fp: String,
 }
 
 /// Process-wide remote hub (one port; many sessions).
@@ -33,7 +40,7 @@ pub struct RemoteHub {
     pub handle: RemoteHubHandle,
     /// Connection card for the last-registered remote session.
     pub last_card: String,
-    pub prompt_rx: mpsc::UnboundedReceiver<RemotePrompt>,
+    pub command_rx: mpsc::UnboundedReceiver<RemoteCommand>,
     /// session_id → meta
     pub sessions: std::collections::HashMap<String, SessionRemoteMeta>,
     /// Session whose panel is open (DocViewer context for disconnect key).
@@ -212,13 +219,15 @@ pub async fn start_hub_and_register(
                             connection_card: card.clone(),
                             agent_id,
                             last_transcript_len: 0,
+                            last_tool_fingerprint: String::new(),
                             suppress_next_user_publish: false,
+                            last_permission_fp: String::new(),
                         },
                     );
                     let hub = RemoteHub {
                         handle,
                         last_card: card.clone(),
-                        prompt_rx: started.prompt_rx,
+                        command_rx: started.command_rx,
                         sessions,
                         panel_session_id: None,
                     };
@@ -243,6 +252,101 @@ pub async fn start_hub_and_register(
 pub async fn stop_remote_session(handle: &RemoteHubHandle, session_id: &str) -> bool {
     handle.unregister_session(session_id).await;
     handle.session_count().await == 0
+}
+
+/// Build remote events from scrollback for history hydrate / tools.
+pub fn events_from_scrollback<'a>(
+    blocks: impl Iterator<Item = &'a RenderBlock>,
+    start_seq: u64,
+) -> Vec<RemoteEvent> {
+    let mut out = Vec::new();
+    let mut seq = start_seq;
+    let mut assistant_buf = String::new();
+
+    let flush_assistant = |buf: &mut String, seq: &mut u64, out: &mut Vec<RemoteEvent>| {
+        if buf.is_empty() {
+            return;
+        }
+        *seq += 1;
+        out.push(RemoteEvent {
+            kind: "assistant".into(),
+            text: std::mem::take(buf),
+            origin: "local".into(),
+            seq: *seq,
+            payload: None,
+        });
+    };
+
+    for block in blocks {
+        match block {
+            RenderBlock::UserPrompt(u) => {
+                flush_assistant(&mut assistant_buf, &mut seq, &mut out);
+                seq += 1;
+                out.push(RemoteEvent {
+                    kind: "user".into(),
+                    text: u.copy_text(),
+                    origin: "local".into(),
+                    seq,
+                    payload: None,
+                });
+            }
+            RenderBlock::AgentMessage(a) => {
+                assistant_buf.push_str(&a.copy_text(true));
+            }
+            RenderBlock::ToolCall(tc) => {
+                flush_assistant(&mut assistant_buf, &mut seq, &mut out);
+                let summary = tool_summary_line(tc);
+                seq += 1;
+                out.push(RemoteEvent {
+                    kind: "tool".into(),
+                    text: summary,
+                    origin: "local".into(),
+                    seq,
+                    payload: None,
+                });
+            }
+            _ => {}
+        }
+    }
+    flush_assistant(&mut assistant_buf, &mut seq, &mut out);
+    out
+}
+
+fn tool_summary_line(tc: &crate::scrollback::blocks::tool::ToolCallBlock) -> String {
+    use crate::scrollback::blocks::tool::ToolCallBlock;
+    match tc {
+        ToolCallBlock::Read(r) => format!("read {}", r.path),
+        ToolCallBlock::Edit(e) => format!("edit {}", e.path),
+        ToolCallBlock::Execute(x) => {
+            let cmd = x.command.chars().take(120).collect::<String>();
+            format!("shell {cmd}")
+        }
+        ToolCallBlock::Search(s) => format!("search {}", s.pattern),
+        ToolCallBlock::ListDir(l) => format!("list {}", l.path),
+        ToolCallBlock::WebSearch(w) => format!("web_search {}", w.query),
+        ToolCallBlock::WebFetch(w) => format!("web_fetch {}", w.url),
+        ToolCallBlock::IntegrationSearch(s) => format!("search_tool {}", s.query),
+        ToolCallBlock::UseTool(u) => format!("use_tool {}", u.tool_name),
+        ToolCallBlock::MemorySearch(m) => format!("memory_search {}", m.query),
+        ToolCallBlock::Skill(o) | ToolCallBlock::Other(o) => {
+            format!("tool {} {}", o.name, o.summary)
+        }
+        ToolCallBlock::Lifecycle(l) => format!("lifecycle {}", l.name),
+    }
+}
+
+/// Publish a pending permission prompt to remote clients.
+pub fn publish_permission(
+    slot: &SessionSlot,
+    title: &str,
+    options: &[(String, String)], // option_id, name
+) {
+    let payload = serde_json::json!({
+        "options": options.iter().map(|(id, name)| {
+            serde_json::json!({ "option_id": id, "name": name })
+        }).collect::<Vec<_>>(),
+    });
+    slot.publish_payload("permission", title, "local", Some(payload));
 }
 
 #[cfg(test)]
@@ -273,5 +377,22 @@ mod tests {
         let qr_view = format_qr_viewer_content(url, "my work");
         assert!(qr_view.contains(url));
         assert!(qr_view.contains('▀') || qr_view.contains('█') || qr_view.contains('▄'));
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+    use crate::scrollback::block::RenderBlock;
+    use crate::scrollback::blocks::user::UserPromptBlock;
+    use crate::scrollback::blocks::agent::AgentMessageBlock;
+
+    #[test]
+    fn history_includes_user_and_assistant() {
+        let user = RenderBlock::UserPrompt(UserPromptBlock::new("hello world"));
+        let agent = RenderBlock::AgentMessage(AgentMessageBlock::new("hi there"));
+        let events = events_from_scrollback([&user, &agent].into_iter(), 0);
+        assert!(events.iter().any(|e| e.kind == "user" && e.text.contains("hello")));
+        assert!(events.iter().any(|e| e.kind == "assistant" && e.text.contains("hi")));
     }
 }

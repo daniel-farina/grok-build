@@ -700,7 +700,9 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                         connection_card: connection_card.clone(),
                         agent_id,
                         last_transcript_len: 0,
+                        last_tool_fingerprint: String::new(),
                         suppress_next_user_publish: false,
+                        last_permission_fp: String::new(),
                     },
                 );
                 hub.last_card = connection_card;
@@ -711,6 +713,8 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                     .scrollback
                     .push_block(crate::scrollback::block::RenderBlock::system(message));
             }
+            // Seed mobile history from current scrollback.
+            super::super::event_loop::push_remote_history_for_session(app, &session_id);
             // Open the QR panel for the newly-enabled session.
             dispatch_show_remote_panel(app)
         }

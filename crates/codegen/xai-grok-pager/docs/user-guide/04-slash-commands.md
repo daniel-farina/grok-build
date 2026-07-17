@@ -80,14 +80,17 @@ What it does:
 tab gets a **different** `/s/<token>/` URL. Open `http://<tailscale-ip>:7788/`
 for a hub list of all remote sessions.
 
-**TUI:** click the **`remote`** chip → QR panel. Press **`d`** to disconnect,
+**TUI:** click the **`remote`** chip → panel. Press **`d`** to disconnect,
 Esc to close. Or `/remote stop`.
 
 On your phone (or another computer):
 
 - Install Tailscale and log into the **same Tailscale account** as this machine.
-- Open the session URL (or scan its QR), or open the hub and pick a session.
-- Stream the session and type messages to **steer** the agent.
+- Open the session URL (or hub URL) in a browser.
+- Use the **☰ session menu** to switch among active remotes without leaving the app.
+- History loads on open (⋯ → Reload history). Tool activity and permission
+  prompts appear in the stream; approve permissions from the phone when needed.
+- ⋯ → Disconnect this session (or `/remote stop` on the TUI).
 
 Local TUI and remote browser share dual input for that session.
 

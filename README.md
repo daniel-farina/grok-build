@@ -145,11 +145,24 @@ show as “You (desktop)” on the phone; phone messages appear in the TUI as
 When a session is remote-enabled, the status bar shows a green **`remote`**
 chip. Click it to:
 
-- View the **QR code and URL** again  
+- View the **URL / QR panel** again  
 - Press **`d`** in the panel to **disconnect** this session  
 - Esc to close  
 
 Or run `/remote stop` from the prompt.
+
+### Mobile console (SPA)
+
+Open the hub or any session URL on your phone (same Tailscale account):
+
+| Feature | How |
+|---------|-----|
+| **Session menu** | ☰ drawer lists all active remotes; tap to switch without leaving the app |
+| **History** | Loads recent user / assistant / tool turns when you open a session; ⋯ → Reload history |
+| **Live stream** | Assistant text (coalesced), tool activity, system lines |
+| **Permissions** | Approval prompts relayed to the phone with option buttons |
+| **Disconnect** | ⋯ → Disconnect this session (or `/remote stop` on the TUI) |
+| **PWA** | Installable / standalone-friendly (`manifest` + service worker) |
 
 ### Notes
 
