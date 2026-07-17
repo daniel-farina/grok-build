@@ -73,6 +73,9 @@ impl AgentView {
                     self.last_context_click_at = Some(now);
                     return InputOutcome::Action(Action::ShowContextInfo);
                 }
+                if self.hit_remote.contains(mouse.column, mouse.row) {
+                    return InputOutcome::Action(Action::ShowRemoteControlPanel);
+                }
                 if self.hit_plan_button.contains(mouse.column, mouse.row) {
                     if self.plan_approval_view.is_some() {
                         self.reopen_plan_approval();
@@ -956,6 +959,7 @@ impl AgentView {
                     .set_hovered_follow_up_chip(self.follow_up_chip_at(mouse.column, mouse.row));
                 changed |= self.hit_badge.update_hover(mouse.column, mouse.row);
                 changed |= self.hit_context.update_hover(mouse.column, mouse.row);
+                changed |= self.hit_remote.update_hover(mouse.column, mouse.row);
                 changed |= self.hit_credits.update_hover(mouse.column, mouse.row);
                 changed |= self.hit_todo_close.update_hover(mouse.column, mouse.row);
                 changed |= self.hit_queue_close.update_hover(mouse.column, mouse.row);

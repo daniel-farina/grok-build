@@ -1496,32 +1496,47 @@ pub(crate) async fn run(
         );
 
         // Dual-input remote control: steer prompts from the Tailscale web UI
-        // enter the same session queue as local TUI prompts.
+        // into the matching session (or active tab if that session is focused).
         {
             let mut remote_prompts = Vec::new();
             if let Some(remote) = app.remote_control.as_mut() {
                 while let Ok(p) = remote.prompt_rx.try_recv() {
-                    remote_prompts.push(p.text);
+                    remote_prompts.push(p);
                 }
             }
-            for text in remote_prompts {
-                // Surface origin in the local TUI so the session is aware.
-                if let ActiveView::Agent(id) = app.active_view
-                    && let Some(agent) = app.agents.get_mut(&id)
-                {
-                    agent.scrollback.push_block(
-                        crate::scrollback::block::RenderBlock::system(
-                            "← remote (Tailscale)".to_string(),
-                        ),
-                    );
-                }
-                // HTTP handler already published this user line — don't double-post.
-                if let Some(remote) = app.remote_control.as_mut() {
-                    remote.suppress_next_user_publish = true;
-                }
-                let effs = dispatch::dispatch(Action::SendPrompt(text), &mut app);
-                if process_effects(effs, &mut tasks, &mut app, &progress_tx) {
-                    return Ok(make_run_result(&app));
+            for prompt in remote_prompts {
+                // Prefer the agent that owns this session_id.
+                let target_id = app
+                    .agents
+                    .iter()
+                    .find(|(_, a)| {
+                        a.session
+                            .session_id
+                            .as_ref()
+                            .is_some_and(|s| s.0.as_ref() == prompt.session_id)
+                    })
+                    .map(|(id, _)| *id);
+                if let Some(id) = target_id {
+                    // Switch to that agent if needed so SendPrompt targets it.
+                    if !matches!(app.active_view, ActiveView::Agent(cur) if cur == id) {
+                        app.active_view = ActiveView::Agent(id);
+                    }
+                    if let Some(agent) = app.agents.get_mut(&id) {
+                        agent.scrollback.push_block(
+                            crate::scrollback::block::RenderBlock::system(
+                                "← remote (Tailscale)".to_string(),
+                            ),
+                        );
+                    }
+                    if let Some(hub) = app.remote_control.as_mut()
+                        && let Some(meta) = hub.sessions.get_mut(&prompt.session_id)
+                    {
+                        meta.suppress_next_user_publish = true;
+                    }
+                    let effs = dispatch::dispatch(Action::SendPrompt(prompt.text), &mut app);
+                    if process_effects(effs, &mut tasks, &mut app, &progress_tx) {
+                        return Ok(make_run_result(&app));
+                    }
                 }
             }
         }
@@ -2587,39 +2602,66 @@ fn sync_appearance_watcher(watcher: &mut Option<SystemAppearanceWatcher>) {
     }
 }
 
-/// Push new assistant text to Tailscale remote clients (streaming stream).
+/// Push new assistant text to Tailscale remote clients for each remote session.
 ///
 /// User messages from the local TUI are published at send time; remote-origin
 /// user messages are published by the HTTP handler. This only fans out
 /// assistant content so dual surfaces stay in sync without double-posting
 /// user lines.
 fn sync_remote_transcript(app: &mut AppView) {
-    let Some(remote) = app.remote_control.as_mut() else {
+    let Some(hub) = app.remote_control.as_mut() else {
         return;
     };
-    let ActiveView::Agent(id) = app.active_view else {
-        return;
-    };
-    let Some(agent) = app.agents.get(&id) else {
-        return;
-    };
-    let mut assistant = String::new();
-    for i in 0..agent.scrollback.len() {
-        if let Some(entry) = agent.scrollback.get(i)
-            && let crate::scrollback::block::RenderBlock::AgentMessage(msg) = &entry.block
+    // Snapshot session ids we need to publish for, then look up agents.
+    let targets: Vec<(String, super::agent::AgentId, usize)> = hub
+        .sessions
+        .iter()
+        .map(|(sid, meta)| (sid.clone(), meta.agent_id, meta.last_transcript_len))
+        .collect();
+
+    for (session_id, agent_id, last_len) in targets {
+        let Some(agent) = app.agents.get(&agent_id) else {
+            continue;
+        };
+        // Confirm agent still owns this session.
+        if agent
+            .session
+            .session_id
+            .as_ref()
+            .is_none_or(|s| s.0.as_ref() != session_id)
         {
-            assistant.push_str(&msg.text());
+            continue;
         }
-    }
-    if assistant.len() <= remote.last_transcript_len {
-        return;
-    }
-    let delta = assistant[remote.last_transcript_len..].to_string();
-    remote.last_transcript_len = assistant.len();
-    if !delta.is_empty() {
-        // Kind `assistant_delta` so remote UIs can coalesce stream chunks
-        // into a single bubble (same as `assistant` on the client).
-        remote.handle.publish("assistant_delta", &delta, "local");
+        let mut assistant = String::new();
+        for i in 0..agent.scrollback.len() {
+            if let Some(entry) = agent.scrollback.get(i)
+                && let crate::scrollback::block::RenderBlock::AgentMessage(msg) = &entry.block
+            {
+                assistant.push_str(&msg.text());
+            }
+        }
+        if assistant.len() <= last_len {
+            continue;
+        }
+        let delta = assistant[last_len..].to_string();
+        if let Some(hub) = app.remote_control.as_mut()
+            && let Some(meta) = hub.sessions.get_mut(&session_id)
+        {
+            meta.last_transcript_len = assistant.len();
+        }
+        if delta.is_empty() {
+            continue;
+        }
+        // Publish via async runtime-free path: try_get slot and publish.
+        // Handle is sync via try_write on transcript; we need the slot.
+        // Use block_in_place / try from map — SessionSlot publish is sync.
+        // We'll spawn a fire-and-forget publish using handle's map try_read.
+        let hub = app.remote_control.as_ref().unwrap();
+        if let Ok(map) = hub.handle.state.sessions.try_read() {
+            if let Some(slot) = map.values().find(|s| s.session_id == session_id) {
+                slot.publish("assistant_delta", &delta, "local");
+            }
+        }
     }
 }
 

@@ -341,15 +341,34 @@ pub(super) fn dispatch_send_prompt_inner(
     // Clone before the agent borrow so local user text can fan out to Tailscale
     // remote clients (dual-input stream).
     let mut skip_remote_user_publish = false;
-    let remote_handle = if let Some(remote) = app.remote_control.as_mut() {
-        if remote.suppress_next_user_publish {
-            remote.suppress_next_user_publish = false;
+    let remote_session_id = app
+        .agents
+        .get(&id)
+        .and_then(|a| a.session.session_id.as_ref())
+        .map(|s| s.0.to_string());
+    if let Some(sid) = remote_session_id.as_deref()
+        && let Some(hub) = app.remote_control.as_mut()
+        && let Some(meta) = hub.sessions.get_mut(sid)
+    {
+        if meta.suppress_next_user_publish {
+            meta.suppress_next_user_publish = false;
             skip_remote_user_publish = true;
         }
-        Some(remote.handle.clone())
-    } else {
-        None
-    };
+    }
+    let remote_slot_publish = remote_session_id.clone().and_then(|sid| {
+        app.remote_control.as_ref().and_then(|hub| {
+            hub.handle
+                .state
+                .sessions
+                .try_read()
+                .ok()
+                .and_then(|map| {
+                    map.values()
+                        .find(|s| s.session_id == sid)
+                        .map(|s| s.clone())
+                })
+        })
+    });
     let Some(agent) = app.agents.get_mut(&id) else {
         return vec![];
     };
@@ -643,12 +662,12 @@ pub(super) fn dispatch_send_prompt_inner(
         // the emptied composer sends the queued message now (cancel-and-send).
         let queued_while_running = agent.session.state.is_turn_running();
 
-        // Dual-input: mirror local user prompts to remote browsers.
-        if let Some(ref h) = remote_handle
+        // Dual-input: mirror local user prompts to remote browsers for this session.
+        if let Some(ref slot) = remote_slot_publish
             && !skip_remote_user_publish
             && !trimmed.is_empty()
         {
-            h.publish("user", trimmed, "local");
+            slot.publish("user", trimmed, "local");
         }
 
         // Composer-recognized slash tokens at submit time: styles the

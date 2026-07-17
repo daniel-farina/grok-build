@@ -621,6 +621,12 @@ pub enum Action {
     ShareSession,
     /// Enable Tailscale remote control (URL + QR) for the active session.
     StartRemoteControl,
+    /// Stop remote control for the active session (`/remote stop`).
+    StopRemoteControl,
+    /// Open the remote control panel (URL / disconnect) for the active session.
+    ShowRemoteControlPanel,
+    /// Open the TUI QR viewer window for the active remote session.
+    ShowRemoteQrViewer,
     /// Show session info (ID, cwd, model, context usage) instantly.
     ShowSessionInfo,
     /// Show release notes in a modal.
@@ -1799,12 +1805,20 @@ pub enum Effect {
         agent_id: AgentId,
         session_id: acp::SessionId,
     },
-    /// Start Tailscale remote control for the active session.
+    /// Start/register Tailscale remote control for a session.
     StartRemoteControl {
         agent_id: AgentId,
+        session_id: String,
         session_label: String,
-        /// When true, only re-show the existing connection card (no new server).
-        already_running_card: Option<String>,
+        /// Clone of the existing hub handle when the hub is already running.
+        existing_hub: Option<crate::remote::RemoteHubHandle>,
+    },
+    /// Unregister remote control for a session.
+    StopRemoteControl {
+        agent_id: AgentId,
+        session_id: String,
+        /// Clone of the hub handle (required to unregister).
+        hub: Option<crate::remote::RemoteHubHandle>,
     },
     /// Fetch and display session info via x.ai/session/info.
     ShowSessionInfo {
@@ -2418,17 +2432,29 @@ pub enum TaskResult {
         agent_id: AgentId,
         error: String,
     },
-    /// Tailscale remote control started (or re-shown).
+    /// Tailscale remote control ready for a session (hub may be new or existing).
     RemoteControlReady {
         agent_id: AgentId,
         message: String,
-        /// `Some` when a new server was started; `None` when re-showing.
-        started: Option<crate::remote::RemoteControlState>,
+        /// Full hub when created or updated (always Some after enable).
+        hub: Option<crate::remote::RemoteHub>,
+        session_id: String,
+        connection_card: String,
+        token: String,
+        url: String,
     },
     /// Tailscale remote control failed (missing install, etc.).
     RemoteControlFailed {
         agent_id: AgentId,
         message: String,
+    },
+    /// Session disconnected from remote; optional emptied hub to drop.
+    RemoteControlStopped {
+        agent_id: AgentId,
+        session_id: String,
+        message: String,
+        /// When true, clear `app.remote_control` (no sessions left).
+        hub_empty: bool,
     },
     /// Session info fetched successfully.
     SessionInfoComplete {

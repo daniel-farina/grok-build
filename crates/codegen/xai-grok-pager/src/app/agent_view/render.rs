@@ -1260,6 +1260,16 @@ impl AgentView {
             }
             status.push("plan", Line::from(Span::styled("plan", plan_style)));
         }
+        if self.remote_enabled {
+            let mut remote_style = Style::default().fg(theme.accent_running).bg(theme.bg_base);
+            if self.hit_remote.hovered {
+                remote_style = remote_style.add_modifier(ratatui::style::Modifier::BOLD);
+            }
+            status.push(
+                "remote",
+                Line::from(Span::styled("remote", remote_style)),
+            );
+        }
         if let Some(ref goal) = self.goal_state {
             let tick = self.tasks.tick_count() as usize;
             let active_subagent_tokens: u64 = self
@@ -1337,6 +1347,7 @@ impl AgentView {
         self.hit_context.rect = areas.get("context").copied();
         self.hit_credits.rect = areas.get("credits").copied();
         self.hit_plan_button.rect = areas.get("plan").copied();
+        self.hit_remote.rect = areas.get("remote").copied();
         self.hit_queue_badge.rect = areas.get("queue").copied();
         self.hit_badge.rect = areas.get("badge").copied();
         let home = std::env::var("HOME").ok();

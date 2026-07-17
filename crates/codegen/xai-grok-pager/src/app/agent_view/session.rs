@@ -165,6 +165,8 @@ impl AgentView {
             hit_queue_close: Default::default(),
             hit_queue_badge: Default::default(),
             hit_plan_button: Default::default(),
+            hit_remote: Default::default(),
+            remote_enabled: false,
             hit_plan_approval_status: Default::default(),
             hit_follow_indicator: Default::default(),
             hit_cwd: Default::default(),

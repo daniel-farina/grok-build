@@ -64,6 +64,7 @@ Enable **remote control** for the current session over [Tailscale](https://tails
 
 ```
 /remote
+/remote stop
 ```
 
 Aliases: `/rc`, `/remote-control`
@@ -71,18 +72,27 @@ Aliases: `/rc`, `/remote-control`
 What it does:
 
 1. Checks that Tailscale is installed and connected (if not, prints install/start instructions).
-2. Starts a small web UI on this machine (reachable on your Tailscale IP).
-3. Prints a **URL** and **QR code**.
+2. Starts a process-wide **hub** (default port `7788`) if needed.
+3. Registers **this session** with its own secret path + QR code.
+4. Shows a connection card and a green **`remote`** chip in the status bar.
+
+**Multiple sessions:** same host IP and port; each `/remote` in a different
+tab gets a **different** `/s/<token>/` URL. Open `http://<tailscale-ip>:7788/`
+for a hub list of all remote sessions.
+
+**TUI:** click the **`remote`** chip → QR panel. Press **`d`** to disconnect,
+Esc to close. Or `/remote stop`.
 
 On your phone (or another computer):
 
 - Install Tailscale and log into the **same Tailscale account** as this machine.
-- Open the URL (or scan the QR) in a browser.
+- Open the session URL (or scan its QR), or open the hub and pick a session.
 - Stream the session and type messages to **steer** the agent.
 
-Local TUI and remote browser share **one session** (dual input). Remote control stops when Grok exits. Run `/remote` again to re-show the connection card.
+Local TUI and remote browser share dual input for that session.
 
-> This is **not** cloud execution: tools and files stay on the host machine. Connectivity is your private Tailscale network plus a secret URL token.
+> This is **not** cloud execution: tools and files stay on the host machine.
+> Connectivity is your private Tailscale network plus a secret URL token.
 
 ### `/fork`
 

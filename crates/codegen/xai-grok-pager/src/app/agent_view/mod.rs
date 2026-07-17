@@ -1046,6 +1046,10 @@ pub struct AgentView {
     pub hit_queue_close: HitArea,
     pub hit_queue_badge: HitArea,
     pub hit_plan_button: HitArea,
+    /// Tailscale remote-control status chip ("remote").
+    pub hit_remote: HitArea,
+    /// Whether this agent's session is registered for Tailscale remote control.
+    pub remote_enabled: bool,
     pub hit_plan_approval_status: HitArea,
     pub hit_follow_indicator: HitArea,
     /// CWD / worktree path in the status bar (click to copy).

@@ -23,6 +23,7 @@ use super::rewind::{
     handle_rewind_preview_complete, handle_rewind_preview_failed,
 };
 use super::router::{dispatch, dispatch_action_result};
+use super::status::dispatch_show_remote_panel;
 use super::session::foreign::{
     handle_foreign_sessions_scanned, handle_session_list_failed, handle_session_list_loaded,
 };
@@ -682,11 +683,38 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
         TaskResult::RemoteControlReady {
             agent_id,
             message,
-            started,
+            hub,
+            session_id,
+            connection_card,
+            token,
+            url,
         } => {
-            if let Some(state) = started {
-                app.remote_control = Some(state);
+            if let Some(new_hub) = hub {
+                app.remote_control = Some(new_hub);
+            } else if let Some(hub) = app.remote_control.as_mut() {
+                hub.sessions.insert(
+                    session_id.clone(),
+                    crate::remote::SessionRemoteMeta {
+                        token,
+                        url,
+                        connection_card: connection_card.clone(),
+                        agent_id,
+                        last_transcript_len: 0,
+                        suppress_next_user_publish: false,
+                    },
+                );
+                hub.last_card = connection_card;
             }
+            if let Some(agent) = app.agents.get_mut(&agent_id) {
+                agent.remote_enabled = true;
+                agent
+                    .scrollback
+                    .push_block(crate::scrollback::block::RenderBlock::system(message));
+            }
+            // Open the QR panel for the newly-enabled session.
+            dispatch_show_remote_panel(app)
+        }
+        TaskResult::RemoteControlFailed { agent_id, message } => {
             if let Some(agent) = app.agents.get_mut(&agent_id) {
                 agent
                     .scrollback
@@ -694,8 +722,33 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             }
             vec![]
         }
-        TaskResult::RemoteControlFailed { agent_id, message } => {
+        TaskResult::RemoteControlStopped {
+            agent_id,
+            session_id,
+            message,
+            hub_empty,
+        } => {
+            if let Some(hub) = app.remote_control.as_mut() {
+                hub.sessions.remove(&session_id);
+                if hub.panel_session_id.as_deref() == Some(session_id.as_str()) {
+                    hub.panel_session_id = None;
+                }
+            }
+            if hub_empty {
+                if let Some(hub) = app.remote_control.take() {
+                    hub.handle.stop();
+                }
+            }
+            // Close remote panel if open.
             if let Some(agent) = app.agents.get_mut(&agent_id) {
+                agent.remote_enabled = false;
+                if matches!(
+                    agent.active_modal.as_ref(),
+                    Some(crate::views::modal::ActiveModal::DocViewer { title, .. })
+                        if title == "Remote control"
+                ) {
+                    agent.active_modal = None;
+                }
                 agent
                     .scrollback
                     .push_block(crate::scrollback::block::RenderBlock::system(message));

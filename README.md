@@ -106,32 +106,59 @@ Aliases: `/rc`, `/remote-control`.
 Grok will:
 
 1. Check that Tailscale is installed and connected (if not, print install hints)
-2. Start a small web UI on this machine (default port `7788`)
-3. Print a **URL** and **QR code**
+2. Start a **hub** HTTP server on this machine (default port `7788`)
+3. Register **this session** with its own secret path and QR
+4. Show a connection card (URL + QR) and open a panel in the TUI
 
-Example URL shape:
+Example URLs:
 
 ```text
-http://100.x.x.x:7788/s/<secret-token>/
+http://100.x.x.x:7788/s/<secret-token>/   # this session only
+http://100.x.x.x:7788/                    # hub: list all remote sessions
 ```
+
+### Multiple sessions
+
+One Grok process = **one hub port** (same Tailscale IP). Each session that
+runs `/remote` gets a **different secret path and QR**, not a different IP.
+
+| Action | Result |
+|--------|--------|
+| `/remote` in session A | Session A URL + QR |
+| Switch tab, `/remote` in session B | Session B URL + QR (same host:port) |
+| Open hub URL on phone | List of all remote-enabled sessions |
+| `/remote stop` | Disconnect **this** session only |
+| Last session stopped | Hub shuts down |
 
 ### 4. Connect from your phone
 
 1. Confirm Tailscale is on and using the **same account** as the host  
-2. Open the printed URL (or scan the QR code) in a mobile browser  
-3. Stream the session and type messages to steer the agent  
+2. Open a **session URL** (or scan that session’s QR), **or** open the hub URL and pick a session  
+3. Stream and type to steer that session  
 
-Local TUI and phone share **one session** (dual input). Desktop messages show
-as “You (desktop)” on the phone; phone messages appear in the TUI as
+Local TUI and phone share **dual input** for that session. Desktop messages
+show as “You (desktop)” on the phone; phone messages appear in the TUI as
 `← remote (Tailscale)`.
+
+### TUI: remote chip
+
+When a session is remote-enabled, the status bar shows a green **`remote`**
+chip. Click it to:
+
+- View the **QR code and URL** again  
+- Press **`d`** in the panel to **disconnect** this session  
+- Esc to close  
+
+Or run `/remote stop` from the prompt.
 
 ### Notes
 
 - **Not cloud execution** — tools and files stay on the host; the host process
   must keep running.
-- **Security** — reachable on your tailnet; URL includes a secret path token.
-  Prefer keeping Tailscale ACLs tight.
-- Re-run `/remote` anytime to re-show the URL/QR. Remote stops when Grok exits.
+- **Security** — reachable on your tailnet; each session URL includes a secret
+  path token. Prefer keeping Tailscale ACLs tight.
+- Remote for a session ends with `/remote stop` or **`d`** in the panel; the
+  hub exits when no sessions remain or Grok quits.
 - More detail: [slash commands — `/remote`](crates/codegen/xai-grok-pager/docs/user-guide/04-slash-commands.md)
 
 ---

@@ -1128,6 +1128,10 @@ pub fn render_doc_picker_overlay(
     );
 }
 /// Render a DocViewer overlay: modal window chrome + cached markdown content.
+///
+/// Special case: title `"Remote QR"` is rendered as **plain monospaced lines
+/// with no wrap**. Unicode QR codes break if markdown reflow or `Paragraph`
+/// wrapping splits a module row mid-line.
 #[allow(clippy::too_many_arguments)]
 pub fn render_doc_viewer_overlay(
     buf: &mut ratatui::buffer::Buffer,
@@ -1140,7 +1144,10 @@ pub fn render_doc_viewer_overlay(
     compact: bool,
     theme: &Theme,
 ) {
+    use ratatui::style::Style;
+    use ratatui::text::Span;
     use ratatui::widgets::{Paragraph, Widget, Wrap};
+    let is_remote_qr = title == "Remote QR";
     let doc_shortcuts = vec![
         super::modal_window::Shortcut {
             label: "\u{2191}/\u{2193} scroll",
@@ -1148,16 +1155,29 @@ pub fn render_doc_viewer_overlay(
             id: 0,
         },
         super::modal_window::Shortcut {
-            label: "Esc back",
+            label: if is_remote_qr {
+                "Esc back"
+            } else {
+                "Esc back"
+            },
             clickable: false,
             id: 0,
         },
     ];
-    let modal_config = super::modal_window::ModalWindowConfig {
-        title,
-        tabs: None,
-        shortcuts: &doc_shortcuts,
-        sizing: super::modal_window::ModalSizing {
+    // QR needs a wide content pane so module rows never wrap.
+    let sizing = if is_remote_qr {
+        super::modal_window::ModalSizing {
+            width_pct: 0.92,
+            max_width: 140,
+            min_width: 60,
+            v_margin: 2,
+            h_pad: 2,
+            v_pad: 1,
+            footer_lines: 2,
+        }
+        .with_compact(compact)
+    } else {
+        super::modal_window::ModalSizing {
             width_pct: 0.80,
             max_width: 120,
             min_width: 44,
@@ -1166,7 +1186,13 @@ pub fn render_doc_viewer_overlay(
             v_pad: 1,
             footer_lines: 2,
         }
-        .with_compact(compact),
+        .with_compact(compact)
+    };
+    let modal_config = super::modal_window::ModalWindowConfig {
+        title,
+        tabs: None,
+        shortcuts: &doc_shortcuts,
+        sizing,
         fold_info: None,
     };
     if let Some(super::modal_window::ModalContentArea {
@@ -1179,10 +1205,23 @@ pub fn render_doc_viewer_overlay(
             .as_ref()
             .is_none_or(|(cached_w, _)| *cached_w != w);
         if needs_reparse {
-            let mc = crate::scrollback::blocks::markdown_content::MarkdownContent::new(content);
-            let output = mc.output(w as usize);
-            let lines: Vec<ratatui::text::Line<'static>> =
-                output.lines.into_iter().map(|b| b.content).collect();
+            let lines: Vec<ratatui::text::Line<'static>> = if is_remote_qr {
+                // Plain lines only — never reflow. Truncate visually only if
+                // the terminal is narrower than the QR (rare after wide sizing).
+                let style = Style::default().fg(theme.text_primary).bg(theme.bg_base);
+                content
+                    .lines()
+                    .map(|line| {
+                        let display: String = line.chars().take(w as usize).collect();
+                        ratatui::text::Line::from(Span::styled(display, style))
+                    })
+                    .collect()
+            } else {
+                let mc =
+                    crate::scrollback::blocks::markdown_content::MarkdownContent::new(content);
+                let output = mc.output(w as usize);
+                output.lines.into_iter().map(|b| b.content).collect()
+            };
             *cached_lines = Some((w, lines));
         }
         let all_lines = &cached_lines.as_ref().unwrap().1;
@@ -1195,7 +1234,12 @@ pub fn render_doc_viewer_overlay(
             .take(content_area.height as usize)
             .cloned()
             .collect();
-        let para = Paragraph::new(visible).wrap(Wrap { trim: false });
+        // Never wrap QR — wrapping mid-row corrupts the code.
+        let para = if is_remote_qr {
+            Paragraph::new(visible)
+        } else {
+            Paragraph::new(visible).wrap(Wrap { trim: false })
+        };
         para.render(content_area, buf);
     }
 }

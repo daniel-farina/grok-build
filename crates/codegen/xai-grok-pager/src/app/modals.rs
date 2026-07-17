@@ -248,12 +248,37 @@ impl AgentView {
 
         // DocViewer: route through ModalWindow chrome, then handle scroll.
         if let ActiveModal::DocViewer {
+            title,
             window,
             previous_palette,
             standalone,
             ..
         } = modal
         {
+            // Remote panels: keyboard shortcuts (no Ctrl/Alt).
+            let remote_panel = title == "Remote control" || title == "Remote QR";
+            if remote_panel
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            {
+                match key.code {
+                    // `d` disconnects this session from either remote window.
+                    KeyCode::Char('d') | KeyCode::Char('D') => {
+                        self.active_modal = None;
+                        return InputOutcome::Action(Action::StopRemoteControl);
+                    }
+                    // `q` opens the scannable QR window from the compact panel.
+                    KeyCode::Char('q') | KeyCode::Char('Q') if title == "Remote control" => {
+                        return InputOutcome::Action(Action::ShowRemoteQrViewer);
+                    }
+                    // Esc on QR returns to the compact remote panel (not full close).
+                    KeyCode::Esc if title == "Remote QR" => {
+                        return InputOutcome::Action(Action::ShowRemoteControlPanel);
+                    }
+                    _ => {}
+                }
+            }
             let chrome_cfg = mw::ModalWindowConfig {
                 title: "",
                 tabs: None,

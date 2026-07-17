@@ -26,25 +26,25 @@ pub(crate) fn dispatch_start_remote_control(app: &mut AppView) -> Vec<Effect> {
     let Some(agent) = app.agents.get(&id) else {
         return vec![];
     };
-    if agent.session.session_id.is_none() {
+    let Some(session_id) = agent.session.session_id.as_ref().map(|s| s.0.to_string()) else {
         return vec![];
+    };
+
+    // Already registered: re-show card + open panel immediately (no async).
+    if let Some(hub) = app.remote_control.as_ref()
+        && let Some(meta) = hub.sessions.get(&session_id)
+    {
+        let card = meta.connection_card.clone();
+        if let Some(agent) = app.agents.get_mut(&id) {
+            agent.remote_enabled = true;
+            agent
+                .scrollback
+                .push_block(crate::scrollback::block::RenderBlock::system(card));
+        }
+        return dispatch_show_remote_panel(app);
     }
 
-    if let Some(remote) = app.remote_control.as_ref() {
-        return vec![Effect::StartRemoteControl {
-            agent_id: id,
-            session_label: String::new(),
-            already_running_card: Some(remote.connection_card.clone()),
-        }];
-    }
-
-    let session_id_label = agent
-        .session
-        .session_id
-        .as_ref()
-        .map(|s| s.0.to_string())
-        .unwrap_or_else(|| "session".into());
-    // Prefer a short human title when available.
+    let session_id_label = session_id.clone();
     let label = agent
         .display_name
         .clone()
@@ -52,11 +52,130 @@ pub(crate) fn dispatch_start_remote_control(app: &mut AppView) -> Vec<Effect> {
         .filter(|t| !t.trim().is_empty())
         .unwrap_or(session_id_label);
 
+    let existing_hub = app.remote_control.as_ref().map(|h| h.handle.clone());
     vec![Effect::StartRemoteControl {
         agent_id: id,
+        session_id,
         session_label: label,
-        already_running_card: None,
+        existing_hub,
     }]
+}
+
+/// Disconnect remote control for the active session (`/remote stop`).
+pub(crate) fn dispatch_stop_remote_control(app: &mut AppView) -> Vec<Effect> {
+    let ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    let Some(agent) = app.agents.get(&id) else {
+        return vec![];
+    };
+    let Some(session_id) = agent.session.session_id.as_ref().map(|s| s.0.to_string()) else {
+        return vec![];
+    };
+
+    if app
+        .remote_control
+        .as_ref()
+        .is_none_or(|h| !h.is_session_remote(&session_id))
+    {
+        if let Some(agent) = app.agents.get_mut(&id) {
+            agent.scrollback.push_block(
+                crate::scrollback::block::RenderBlock::system(
+                    "Remote control is not enabled for this session.".to_string(),
+                ),
+            );
+        }
+        return vec![];
+    }
+
+    let hub = app.remote_control.as_ref().map(|h| h.handle.clone());
+    vec![Effect::StopRemoteControl {
+        agent_id: id,
+        session_id,
+        hub,
+    }]
+}
+
+/// Open the remote control panel (compact card) for the active session.
+pub(crate) fn dispatch_show_remote_panel(app: &mut AppView) -> Vec<Effect> {
+    use crate::views::modal::ActiveModal;
+    use crate::views::modal_window::ModalWindowState;
+
+    let ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    let Some(agent) = app.agents.get_mut(&id) else {
+        return vec![];
+    };
+    let Some(session_id) = agent.session.session_id.as_ref().map(|s| s.0.to_string()) else {
+        return vec![];
+    };
+
+    let Some(hub) = app.remote_control.as_mut() else {
+        app.show_toast("Remote is off — run /remote first");
+        return vec![];
+    };
+    let Some(meta) = hub.sessions.get(&session_id) else {
+        app.show_toast("Remote is off for this session — run /remote");
+        return vec![];
+    };
+
+    let content = meta.connection_card.clone();
+    hub.panel_session_id = Some(session_id);
+    agent.active_modal = Some(ActiveModal::DocViewer {
+        title: "Remote control".into(),
+        content,
+        scroll: 0,
+        window: ModalWindowState::default(),
+        cached_lines: None,
+        previous_palette: None,
+        standalone: true,
+    });
+    vec![]
+}
+
+/// Open a dedicated TUI window with the scannable unicode QR code.
+pub(crate) fn dispatch_show_remote_qr_viewer(app: &mut AppView) -> Vec<Effect> {
+    use crate::views::modal::ActiveModal;
+    use crate::views::modal_window::ModalWindowState;
+
+    let ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    let Some(agent) = app.agents.get_mut(&id) else {
+        return vec![];
+    };
+    let Some(session_id) = agent.session.session_id.as_ref().map(|s| s.0.to_string()) else {
+        return vec![];
+    };
+
+    let Some(hub) = app.remote_control.as_mut() else {
+        app.show_toast("Remote is off — run /remote first");
+        return vec![];
+    };
+    let Some(meta) = hub.sessions.get(&session_id) else {
+        app.show_toast("Remote is off for this session — run /remote");
+        return vec![];
+    };
+
+    let label = agent
+        .display_name
+        .clone()
+        .or_else(|| agent.generated_session_title.clone())
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| session_id.clone());
+    let content = crate::remote::format_qr_viewer_content(&meta.url, &label);
+    hub.panel_session_id = Some(session_id);
+    agent.active_modal = Some(ActiveModal::DocViewer {
+        title: "Remote QR".into(),
+        content,
+        scroll: 0,
+        window: ModalWindowState::default(),
+        cached_lines: None,
+        previous_palette: None,
+        standalone: true,
+    });
+    vec![]
 }
 
 /// Share the current session via a public URL.

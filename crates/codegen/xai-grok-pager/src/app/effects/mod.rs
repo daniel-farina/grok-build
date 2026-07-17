@@ -2863,43 +2863,67 @@ pub(crate) fn execute(
         }
         Effect::StartRemoteControl {
             agent_id,
+            session_id,
             session_label,
-            already_running_card,
+            existing_hub,
         } => {
             tasks.spawn(async move {
-                if let Some(message) = already_running_card {
-                    return TaskResult::RemoteControlReady {
-                        agent_id,
-                        message,
-                        started: None,
-                    };
-                }
-                match crate::remote::start_remote(None, session_label).await {
-                    crate::remote::RemoteStartResult::Started {
-                        message,
+                let result = if let Some(handle) = existing_hub {
+                    Ok(crate::remote::register_session_on_hub(
                         handle,
-                        prompt_rx,
-                    } => TaskResult::RemoteControlReady {
+                        session_id.clone(),
+                        session_label,
+                    )
+                    .await)
+                } else {
+                    crate::remote::start_hub_and_register(
+                        session_id.clone(),
+                        session_label,
                         agent_id,
-                        message: message.clone(),
-                        started: Some(crate::remote::RemoteControlState {
-                            handle,
-                            connection_card: message,
-                            prompt_rx,
-                            last_transcript_len: 0,
-                            suppress_next_user_publish: false,
-                        }),
+                    )
+                    .await
+                };
+                match result {
+                    Ok(reg) => TaskResult::RemoteControlReady {
+                        agent_id,
+                        message: reg.message,
+                        hub: reg.new_hub,
+                        session_id,
+                        connection_card: reg.connection_card,
+                        token: reg.token,
+                        url: reg.url,
                     },
-                    crate::remote::RemoteStartResult::AlreadyRunning { message } => {
-                        TaskResult::RemoteControlReady {
-                            agent_id,
-                            message,
-                            started: None,
-                        }
-                    }
-                    crate::remote::RemoteStartResult::Failed { message } => {
-                        TaskResult::RemoteControlFailed { agent_id, message }
-                    }
+                    Err(message) => TaskResult::RemoteControlFailed { agent_id, message },
+                }
+            });
+        }
+        Effect::StopRemoteControl {
+            agent_id,
+            session_id,
+            hub,
+        } => {
+            tasks.spawn(async move {
+                let Some(handle) = hub else {
+                    return TaskResult::RemoteControlStopped {
+                        agent_id,
+                        session_id: session_id.clone(),
+                        message: "Remote control is not running.".into(),
+                        hub_empty: true,
+                    };
+                };
+                let empty = crate::remote::stop_remote_session(&handle, &session_id).await;
+                if empty {
+                    handle.stop();
+                }
+                TaskResult::RemoteControlStopped {
+                    agent_id,
+                    session_id,
+                    message: if empty {
+                        "Remote control disconnected (hub stopped).".into()
+                    } else {
+                        "Remote control disconnected for this session.".into()
+                    },
+                    hub_empty: empty,
                 }
             });
         }
